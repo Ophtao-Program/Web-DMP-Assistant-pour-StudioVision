@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Guide — WebDMP Assistant</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 32px 24px; color: #1e293b; line-height: 1.6; }
+  h1   { font-size: 22px; margin-bottom: 6px; }
+  h2   { font-size: 16px; margin-top: 28px; margin-bottom: 8px; color: #2563eb; border-left: 3px solid #2563eb; padding-left: 10px; }
+  p, li { font-size: 14px; margin-bottom: 8px; }
+  ol, ul { padding-left: 22px; }
+  .step { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
+  .step strong { color: #1d4ed8; }
+  .tip  { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px 16px; font-size: 13px; }
+  code  { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>📖 Guide WebDMP Assistant</h1>
+<p>Cet outil vous permet d'ouvrir le portail Web DMP de Mon Espace Santé, de détecter automatiquement le patient ouvert dans StudioVision, et de copier facilement ses notes et documents dans le DMP.</p>
+
+<h2>Workflow quotidien</h2>
+
+<div class="step">
+  <strong>Étape 1 — Ouvrir le Web DMP</strong><br>
+  Cliquez sur <em>🌐 Ouvrir Web DMP</em>. Une fenêtre s'ouvre sur le portail <code>dmp.fr</code>.<br>
+  Connectez-vous avec votre carte CPS ou votre identifiant e-CPS (le champ est pré-rempli si vous l'avez mémorisé).
+</div>
+
+<div class="step">
+  <strong>Étape 2 — Détecter le patient</strong><br>
+  Ouvrez le dossier du patient dans StudioVision, puis cliquez sur <em>⟳ Détecter le patient actif dans StudioVision</em>.<br>
+  Le nom, la date de naissance et le NIR s'affichent automatiquement.
+</div>
+
+<div class="step">
+  <strong>Étape 3 — Consulter les documents</strong><br>
+  L'onglet <em>Documents</em> liste les derniers fichiers PDF/images du patient (comptes rendus, imagerie…).<br>
+  Cliquez sur 👁 pour ouvrir un fichier dans son lecteur habituel (Acrobat, Aperçu…).<br>
+  Cochez les documents que vous souhaitez déposer dans le DMP.
+</div>
+
+<div class="step">
+  <strong>Étape 4 — Copier des notes</strong><br>
+  L'onglet <em>Notes</em> liste les dernières consultations/observations du patient.<br>
+  Cliquez sur <em>📋 Copier tout</em> pour copier le texte dans le presse-papier.<br>
+  Dans la fenêtre Web DMP, collez le texte (<kbd>Ctrl+V</kbd>) dans le champ correspondant.
+</div>
+
+<h2>Mémoriser votre identifiant e-CPS</h2>
+<p>Saisissez votre identifiant e-CPS dans le champ prévu, puis cliquez sur <em>💾 Mémoriser l'identifiant</em>. 
+Il sera automatiquement pré-rempli à chaque ouverture de l'application. Cet identifiant est stocké localement sur votre poste, jamais transmis.</p>
+
+<h2>Prérequis techniques</h2>
+<ul>
+  <li><strong>StudioVision</strong> doit être ouvert avec un dossier patient visible pour la détection automatique.</li>
+  <li><strong>pywin32</strong> doit être installé : <code>pip install pywin32</code></li>
+  <li><strong>pyodbc</strong> + pilote Access 64 bits pour l'accès à <code>PUBLIC.MDB</code>.</li>
+  <li>La configuration des chemins (<code>FICHIER_MDB</code>, <code>DEST_PHOTOS</code>) doit être adaptée dans <code>python/dmp_connector.py</code>.</li>
+</ul>
+
+<div class="tip">
+  💡 <strong>Conseil :</strong> La fenêtre Web DMP conserve votre session entre les utilisations (cookie persistant). Vous n'avez à vous connecter qu'une seule fois par journée de travail.
+</div>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Envoyer au DMP</title>
+  <style>
+    :root {
+      --bg: #0f1419; --surface: #1b1f27; --border: #2a3039;
+      --text: #e6e6e6; --muted: #8a93a2; --primary: #3b82f6; --primary-h: #2563eb;
+      --green: #46a758; --red: #e5484d;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text); padding: 16px; font-size: 14px;
+      user-select: none;
+    }
+    h1 { font-size: 15px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;
+    }
+    .row { display: flex; gap: 8px; margin-bottom: 4px; }
+    .row .label { color: var(--muted); min-width: 72px; }
+    .row .value { flex: 1; word-break: break-word; }
+    label.field { display: block; margin-bottom: 12px; }
+    label.field > span { display: block; color: var(--muted); margin-bottom: 4px; font-size: 12px; }
+    select, input[type="text"] {
+      width: 100%; padding: 7px 9px; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+    }
+    .checkrow { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 13px; cursor: pointer; }
+    .actions { display: flex; gap: 8px; }
+    button {
+      flex: 1; padding: 9px; border: none; border-radius: 7px; font-size: 14px;
+      font-weight: 600; cursor: pointer;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-h); }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    #progress { margin-top: 12px; font-size: 12px; display: none; }
+    #progress .step { display: flex; gap: 7px; padding: 2px 0; align-items: flex-start; }
+    #progress .step .ic { width: 16px; }
+    .mandatory { color: var(--red); }
+    .hint { font-size: 11px; color: var(--muted); margin-top: -8px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <h1>📤 Envoyer au DMP</h1>
+
+  <div class="card" id="doc-card">
+    <div class="row"><span class="label">Patient</span><span class="value" id="v-patient">—</span></div>
+    <div class="row"><span class="label">Document</span><span class="value" id="v-doc">—</span></div>
+    <div class="row"><span class="label">Date</span><span class="value" id="v-date">—</span></div>
+  </div>
+
+  <label class="field">
+    <span>Type de document DMP <span class="mandatory">*</span></span>
+    <select id="type"></select>
+  </label>
+
+  <label class="field">
+    <span>Titre du document <span class="mandatory">*</span></span>
+    <input type="text" id="title" placeholder="Titre dans le DMP">
+  </label>
+
+  <label class="checkrow">
+    <input type="checkbox" id="visible" checked>
+    Document visible par tout professionnel autorisé
+  </label>
+
+  <div class="actions">
+    <button class="btn-ghost" id="btn-cancel">Annuler</button>
+    <button class="btn-primary" id="btn-send">Envoyer</button>
+  </div>
+
+  <div id="progress"></div>
+
+  <script src="../../dist/renderer/quick_deposit.js" type="text/javascript"></script>
+</body>
+</html>

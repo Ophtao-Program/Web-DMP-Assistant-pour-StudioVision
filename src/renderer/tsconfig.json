@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target":          "ES2020",
+    "module":          "commonjs",
+    "lib":             ["ES2020", "DOM"],
+    "outDir":          "../../dist/renderer",
+    "rootDir":         ".",
+    "strict":          true,
+    "esModuleInterop": true,
+    "skipLibCheck":    true,
+    "sourceMap":       true
+  },
+  "include": ["renderer.ts", "quick_deposit.ts"],
+  "exclude": ["node_modules"]
+}

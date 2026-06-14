@@ -1,1 +1,750 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebDMP Assistant</title>
+  <style>
+    /* ── Reset & base ── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --blue:       #2563eb;
+      --blue-light: #eff6ff;
+      --blue-border:#bfdbfe;
+      --green:      #16a34a;
+      --green-bg:   #f0fdf4;
+      --green-brd:  #bbf7d0;
+      --red:        #dc2626;
+      --red-bg:     #fef2f2;
+      --red-brd:    #fecaca;
+      --amber:      #d97706;
+      --amber-bg:   #fffbeb;
+      --amber-brd:  #fde68a;
+      --gray:       #64748b;
+      --gray-bg:    #f8fafc;
+      --border:     #e2e8f0;
+      --text:       #1e293b;
+      --text-muted: #64748b;
+      --radius:     8px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f1f5f9;
+      color: var(--text);
+      padding: 16px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    /* ── Header ── */
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .app-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .app-title .logo {
+      background: var(--blue);
+      color: white;
+      border-radius: 6px;
+      padding: 3px 7px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .03em;
+    }
+
+    /* ── Section card ── */
+    .section {
+      background: white;
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    /* ── Patient card ── */
+    #patient-card {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: var(--blue-light);
+      border: 1px solid var(--blue-border);
+      border-radius: var(--radius);
+      margin-bottom: 8px;
+    }
+    #patient-card.visible { display: flex; }
+
+    #patient-card .pi-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--blue);
+    }
+    #patient-card .pi-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+    #patient-card button.clear-btn {
+      margin-left: auto;
+      background: none;
+      border: none;
+      font-size: 16px;
+      color: #94a3b8;
+      cursor: pointer;
+      padding: 2px 5px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    #patient-card button.clear-btn:hover { color: var(--red); background: var(--red-bg); }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all .15s;
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      color: white;
+      width: 100%;
+      justify-content: center;
+    }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: var(--gray-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      width: 100%;
+      justify-content: center;
+    }
+    .btn-secondary:hover { background: #e2e8f0; }
+    .btn-secondary:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-green {
+      background: var(--green);
+      color: white;
+    }
+    .btn-green:hover { background: #15803d; }
+
+    .btn-ghost {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+    .btn-ghost:hover { background: var(--gray-bg); color: var(--text); }
+
+    /* ── Status ── */
+    #status {
+      display: none;
+      padding: 9px 13px;
+      border-radius: var(--radius);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    #status.info    { background: var(--blue-light);  color: var(--blue);  border: 1px solid var(--blue-border); display: block; }
+    #status.success { background: var(--green-bg);    color: var(--green); border: 1px solid var(--green-brd);   display: block; }
+    #status.error   { background: var(--red-bg);      color: var(--red);   border: 1px solid var(--red-brd);     display: block; }
+
+    /* ── DMP status bar ── */
+    #dmp-status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 13px;
+      border-radius: var(--radius);
+      background: var(--amber-bg);
+      border: 1px solid var(--amber-brd);
+      font-size: 12px;
+      color: var(--amber);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    #dmp-status-bar.connected {
+      background: var(--green-bg);
+      border-color: var(--green-brd);
+      color: var(--green);
+    }
+    #dmp-status-bar .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--amber);
+      flex-shrink: 0;
+    }
+    #dmp-status-bar.connected .dot { background: var(--green); }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+    .tab-btn {
+      flex: 1; padding: 7px 6px;
+      background: var(--gray-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      text-align: center;
+      transition: all .15s;
+    }
+    .tab-btn.active {
+      background: var(--blue);
+      color: white;
+      border-color: var(--blue);
+    }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* ── Document list ── */
+    .doc-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 320px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .doc-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      cursor: pointer;
+      transition: all .13s;
+      background: white;
+    }
+    .doc-item:hover { border-color: var(--blue-border); background: var(--blue-light); }
+    .doc-item.selected {
+      border-color: var(--blue);
+      background: var(--blue-light);
+    }
+
+    .doc-item .doc-icon { font-size: 18px; flex-shrink: 0; }
+
+    .doc-item .doc-info { flex: 1; min-width: 0; }
+    .doc-item .doc-name {
+      font-size: 12px; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .doc-item .doc-meta { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+
+    .doc-item .doc-check {
+      width: 18px; height: 18px;
+      border: 2px solid var(--border);
+      border-radius: 4px;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; color: white;
+      transition: all .13s;
+    }
+    .doc-item.selected .doc-check {
+      background: var(--blue);
+      border-color: var(--blue);
+    }
+    .doc-item.selected .doc-check::after { content: '✓'; }
+
+    .doc-item .doc-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .doc-open-btn {
+      background: none; border: 1px solid var(--border);
+      border-radius: 5px; padding: 3px 7px;
+      font-size: 11px; cursor: pointer; color: var(--text-muted);
+    }
+    .doc-open-btn:hover { background: var(--gray-bg); color: var(--text); }
+
+    .doc-absent { opacity: .5; }
+
+    /* ── Note list ── */
+    .note-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 340px;
+      overflow-y: auto;
+    }
+
+    .note-item {
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      overflow: hidden;
+      background: white;
+    }
+
+    .note-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--gray-bg);
+      border-bottom: 1px solid var(--border);
+      gap: 8px;
+    }
+
+    .note-date {
+      font-size: 11px; font-weight: 700; color: var(--text);
+    }
+    .note-source {
+      font-size: 10px; color: var(--text-muted);
+      background: white; border: 1px solid var(--border);
+      border-radius: 99px; padding: 1px 7px;
+    }
+    .note-titre {
+      flex: 1; font-size: 12px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    .note-body {
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text);
+      white-space: pre-wrap;
+      max-height: 100px;
+      overflow-y: auto;
+    }
+
+    .note-actions {
+      display: flex;
+      gap: 6px;
+      padding: 7px 12px;
+      border-top: 1px solid var(--border);
+      background: var(--gray-bg);
+    }
+
+    .copy-btn {
+      flex: 1; padding: 6px 10px;
+      background: white; border: 1px solid var(--border);
+      border-radius: 6px; font-size: 11px; font-weight: 600;
+      cursor: pointer; color: var(--text-muted);
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      transition: all .13s;
+    }
+    .copy-btn:hover { background: var(--blue-light); color: var(--blue); border-color: var(--blue-border); }
+    .copy-btn.copied { background: var(--green-bg); color: var(--green); border-color: var(--green-brd); }
+
+    /* ── Config section ── */
+    .config-row {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+    }
+
+    label.field-label {
+      display: flex; flex-direction: column; gap: 4px;
+      font-size: 12px; color: var(--text-muted); font-weight: 600;
+      flex: 1;
+    }
+
+    input[type=text], input[type=password] {
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--text);
+      background: white;
+      transition: border-color .15s;
+      width: 100%;
+    }
+    input:focus {
+      outline: none;
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.1);
+    }
+
+    /* ── Selection bar ── */
+    #selection-bar {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--blue-light);
+      border: 1px solid var(--blue-border);
+      border-radius: 7px;
+      margin-bottom: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--blue);
+    }
+    #selection-bar.visible { display: flex; }
+    #selection-bar .sel-count { flex: 1; }
+
+    /* ── Empty state ── */
+    .empty-state {
+      text-align: center;
+      padding: 24px 16px;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+    .empty-state .empty-icon { font-size: 28px; margin-bottom: 8px; }
+    .empty-state .empty-msg { font-weight: 600; margin-bottom: 4px; }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid #e2e8f0;
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Footer ── */
+    .app-footer {
+      text-align: center;
+      margin-top: 8px;
+    }
+    .app-footer button {
+      font-size: 11px; color: var(--text-muted);
+      background: none; border: none;
+      text-decoration: underline; cursor: pointer;
+    }
+    .app-footer button:hover { color: var(--text); }
+
+    /* Scrollbar fine */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="app-header">
+    <div class="app-title">
+      <span class="logo">DMP</span>
+      WebDMP Assistant
+    </div>
+    <button class="btn btn-ghost" id="btn-guide" title="Guide">❓ Guide</button>
+  </div>
+
+  <!-- Section : Connexion DMP -->
+  <div class="section">
+    <div class="section-title">🔐 Connexion Web DMP</div>
+
+    <!-- Statut de la fenêtre DMP -->
+    <div id="dmp-status-bar">
+      <span class="dot"></span>
+      <span id="dmp-status-text">Fenêtre DMP fermée</span>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn btn-primary" id="btn-open-dmp" style="flex:1">
+        🌐 Ouvrir Web DMP
+      </button>
+      <button class="btn btn-ghost" id="btn-close-dmp" title="Fermer la fenêtre DMP" style="flex:none;padding:8px 12px">✕</button>
+    </div>
+
+    <!-- Identifiant sauvegardé -->
+    <label class="field-label">
+      Identifiant e-CPS (pré-rempli au login)
+      <input type="text" id="ecps-id" placeholder="Ex : 899700218886">
+    </label>
+    <div style="margin-top:6px">
+      <button class="btn btn-secondary" id="btn-save-config" style="width:auto;padding:6px 14px;font-size:12px">
+        💾 Mémoriser l'identifiant
+      </button>
+    </div>
+  </div>
+
+  <!-- Section : Enregistreur d'actions -->
+  <div class="section">
+    <div class="section-title">⏺ Enregistreur d'actions Web DMP</div>
+
+    <div id="rec-status-bar" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:var(--surface,#1b1f27);margin-bottom:8px;font-size:13px">
+      <span id="rec-dot" style="width:9px;height:9px;border-radius:50%;background:#777;display:inline-block"></span>
+      <span id="rec-status-text" style="flex:1">Enregistrement arrêté</span>
+      <span id="rec-count" style="font-variant-numeric:tabular-nums;color:var(--muted,#8a93a2)">0 action</span>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn btn-primary" id="btn-rec-start" style="flex:1">
+        ⏺ Démarrer l'enregistrement
+      </button>
+      <button class="btn btn-ghost" id="btn-rec-stop" style="flex:1" disabled>
+        ⏹ Arrêter
+      </button>
+    </div>
+
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary" id="btn-open-logs" style="flex:1;font-size:12px;padding:6px 10px">
+        📁 Dossier des journaux
+      </button>
+      <button class="btn btn-secondary" id="btn-list-recordings" style="flex:1;font-size:12px;padding:6px 10px">
+        🗂 Sessions enregistrées
+      </button>
+    </div>
+
+    <div id="rec-last" style="margin-top:8px;font-size:11px;color:var(--muted,#8a93a2);min-height:14px"></div>
+    <div id="rec-sessions" style="margin-top:6px;font-size:11px"></div>
+  </div>
+
+  <!-- Section : Patient -->
+  <div class="section">
+    <div class="section-title">👤 Patient StudioVision</div>
+
+    <!-- Carte patient détecté -->
+    <div id="patient-card">
+      <span style="font-size:22px">👁</span>
+      <div style="flex:1">
+        <div class="pi-name" id="patient-name">—</div>
+        <div class="pi-meta" id="patient-meta">—</div>
+      </div>
+      <button class="clear-btn" id="btn-clear-patient" title="Effacer">✕</button>
+    </div>
+
+    <button class="btn btn-secondary" id="btn-auto-detect">
+      ⟳ Détecter le patient actif dans StudioVision
+    </button>
+
+    <div id="status"></div>
+  </div>
+
+  <!-- Section : Documents & Notes -->
+  <div class="section" id="section-content" style="display:none">
+    <div class="section-title">📂 Documents & Notes du patient</div>
+
+    <!-- Tabs Documents / Notes -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="docs">📄 Documents (<span id="docs-count">0</span>)</button>
+      <button class="tab-btn"        data-tab="notes">📝 Notes (<span id="notes-count">0</span>)</button>
+    </div>
+
+    <!-- Tab Documents -->
+    <div class="tab-pane active" id="tab-docs">
+
+      <!-- Barre de sélection -->
+      <div id="selection-bar">
+        <span class="sel-count" id="sel-count-text">0 document sélectionné</span>
+        <button class="btn btn-ghost" id="btn-deselect-all" style="padding:4px 10px;font-size:11px">✕ Tout désélectionner</button>
+      </div>
+
+      <div id="doc-list-container">
+        <div class="empty-state">
+          <div class="empty-icon">📂</div>
+          <div class="empty-msg">Aucun document chargé</div>
+          <div>Détectez un patient pour afficher ses documents</div>
+        </div>
+      </div>
+
+      <!-- Bloc dépôt automatique sur le DMP -->
+      <div id="deposit-box" style="margin-top:12px;padding:10px;border:1px solid var(--border,#2a3039);border-radius:8px">
+        <div style="font-weight:600;margin-bottom:8px">📤 Déposer sur le DMP</div>
+
+        <label class="field-label" style="display:block;margin-bottom:6px">
+          Titre du document <span style="color:var(--red,#e5484d)">*</span>
+          <input type="text" id="deposit-title" placeholder="Ex : Biométrie longueurs axiales"
+                 style="width:100%;margin-top:3px">
+        </label>
+
+        <label class="field-label" style="display:block;margin-bottom:6px">
+          Type de document DMP <span style="color:var(--red,#e5484d)">*</span>
+          <select id="deposit-type" style="width:100%;margin-top:3px">
+            <option value="">— Choisir un type —</option>
+
+            <!-- ★ Ophtalmologie — usage quotidien -->
+            <optgroup label="★ Ophtalmologie (fréquents)">
+              <option value="CR de consultation en ophtalmologie">CR de consultation en ophtalmologie</option>
+              <option value="Mesures de signes vitaux">Mesures de signes vitaux (biométrie, acuité, tonus)</option>
+              <option value="CR d'imagerie médicale">CR d'imagerie médicale (OCT, rétinographie, angiographie)</option>
+              <option value="Document encapsulant une image d'illustration non DICOM">Image non DICOM (fond d'œil, Imagenet)</option>
+              <option value="Prescription de produits de santé">Prescription de produits de santé (lunettes, lentilles, collyres)</option>
+              <option value="Prescription de soins">Prescription de soins (orthoptie…)</option>
+            </optgroup>
+
+            <!-- Synthèses -->
+            <optgroup label="Synthèses">
+              <option value="Synthèse">Synthèse</option>
+              <option value="Synthèse d'épisode de soins">Synthèse d'épisode de soins</option>
+              <option value="Synthèse médicale">Synthèse médicale</option>
+              <option value="Bilan de santé et de prévention de l'enfant">Bilan de santé et de prévention de l'enfant</option>
+              <option value="Synthèse Salle de Naissance Mère">Synthèse Salle de Naissance Mère</option>
+              <option value="Synthèse Salle de Naissance Enfant">Synthèse Salle de Naissance Enfant</option>
+              <option value="Synthèse Suites de Couches Mère">Synthèse Suites de Couches Mère</option>
+              <option value="Synthèse Enfant en Maternité">Synthèse Enfant en Maternité</option>
+              <option value="Synthèse antepartum">Synthèse antepartum</option>
+              <option value="Synthèse psychiatrique">Synthèse psychiatrique</option>
+              <option value="Bilan psychologique">Bilan psychologique</option>
+              <option value="Note de transfert (dont lettre de liaison à l'entrée en établissement de soins)">Note de transfert (dont lettre de liaison à l'entrée en établissement de soins)</option>
+              <option value="Lettre de liaison d'entrée en structure sociale ou médico-sociale">Lettre de liaison d'entrée en structure sociale ou médico-sociale</option>
+              <option value="Bilan médicamenteux (Officine)">Bilan médicamenteux (Officine)</option>
+              <option value="Formulaire de conciliation médicamenteuse (Hôpital)">Formulaire de conciliation médicamenteuse (Hôpital)</option>
+              <option value="Document de liaison d'urgence">Document de liaison d'urgence</option>
+              <option value="Fiche de transfert vers le service des urgences">Fiche de transfert vers le service des urgences</option>
+              <option value="Fiche de retour du service des urgences">Fiche de retour du service des urgences</option>
+              <option value="Grille d'évaluation médico-social">Grille d'évaluation médico-social</option>
+              <option value="Schéma dentaire">Schéma dentaire</option>
+            </optgroup>
+
+            <!-- Traitements et soins -->
+            <optgroup label="Traitements et soins">
+              <option value="CR d'administration de médicaments">CR d'administration de médicaments</option>
+              <option value="CR ou fiche de suivi de soins par auxiliaire médical">CR ou fiche de suivi de soins par auxiliaire médical</option>
+              <option value="Dispensation médicamenteuse">Dispensation médicamenteuse</option>
+              <option value="Dispensation (autre)">Dispensation (autre)</option>
+              <option value="Plan personnalisé de soins">Plan personnalisé de soins</option>
+              <option value="Projet personnalisé d'accompagnement">Projet personnalisé d'accompagnement</option>
+              <option value="Projet d'accueil individualisé">Projet d'accueil individualisé</option>
+              <option value="Planification thérapeutique">Planification thérapeutique</option>
+              <option value="Prescription arrêt de travail">Prescription arrêt de travail</option>
+              <option value="Prescription de produits de santé">Prescription de produits de santé</option>
+              <option value="Prescription de soins">Prescription de soins</option>
+              <option value="Demande d'actes d'imagerie">Demande d'actes d'imagerie</option>
+              <option value="Renouvellement ordonnance par pharmacien correspondant">Renouvellement ordonnance par pharmacien correspondant</option>
+              <option value="Intervention pharmaceutique">Intervention pharmaceutique</option>
+              <option value="Prescription d'actes de biologie médicale">Prescription d'actes de biologie médicale</option>
+              <option value="Prescription d'actes de kinésithérapie">Prescription d'actes de kinésithérapie</option>
+              <option value="Prescription d'actes infirmiers">Prescription d'actes infirmiers</option>
+              <option value="Prescription d'actes de pédicurie">Prescription d'actes de pédicurie</option>
+              <option value="Prescription d'actes d'orthophonie">Prescription d'actes d'orthophonie</option>
+              <option value="Prescription d'actes d'orthoptie">Prescription d'actes d'orthoptie</option>
+              <option value="Prescription (autre)">Prescription (autre)</option>
+              <option value="Plan personnalisé de prévention">Plan personnalisé de prévention</option>
+              <option value="Protocole de soins ALD">Protocole de soins ALD</option>
+            </optgroup>
+
+            <!-- Comptes-rendus -->
+            <optgroup label="Comptes-rendus">
+              <option value="CR de grossesse">CR de grossesse</option>
+              <option value="CR d'accouchement">CR d'accouchement</option>
+              <option value="CR d'acte diagnostique (autre)">CR d'acte diagnostique (autre)</option>
+              <option value="CR d'acte thérapeutique (autre)">CR d'acte thérapeutique (autre)</option>
+              <option value="CR d'admission">CR d'admission</option>
+              <option value="CR d'anesthésie">CR d'anesthésie</option>
+              <option value="CR de bilan d'évaluation de la perte d'autonomie">CR de bilan d'évaluation de la perte d'autonomie</option>
+              <option value="Évaluation postopératoire et note de suivi">Évaluation postopératoire et note de suivi</option>
+              <option value="CR de bilan fonctionnel">CR de bilan fonctionnel</option>
+              <option value="CR de consultation pré-anesthésique">CR de consultation pré-anesthésique</option>
+              <option value="CR de consultation en ophtalmologie">CR de consultation en ophtalmologie</option>
+              <option value="CR de génétique moléculaire">CR de génétique moléculaire</option>
+              <option value="CR de passage aux urgences">CR de passage aux urgences</option>
+              <option value="CR de consultation pharmaceutique">CR de consultation pharmaceutique</option>
+              <option value="CR d'entretien pharmaceutique">CR d'entretien pharmaceutique</option>
+              <option value="CR de réunion de concertation pluridisciplinaire">CR de réunion de concertation pluridisciplinaire</option>
+              <option value="CR de télémédecine">CR de télémédecine</option>
+              <option value="Demande d'acte de télémédecine">Demande d'acte de télémédecine</option>
+              <option value="CR hospitalier (séjour)">CR hospitalier (séjour)</option>
+              <option value="Bilan bucco-dentaire">Bilan bucco-dentaire</option>
+              <option value="CR opératoire">CR opératoire</option>
+              <option value="Bilan par professionnel de santé">Bilan par professionnel de santé</option>
+              <option value="Document du secteur social / médico-social">Document du secteur social / médico-social</option>
+              <option value="Lettre d'adressage">Lettre d'adressage</option>
+              <option value="CR ou fiche de consultation ou de visite">CR ou fiche de consultation ou de visite</option>
+              <option value="Lettre de liaison à la sortie d'une structure sociale ou médico-sociale">Lettre de liaison à la sortie d'une structure sociale ou médico-sociale</option>
+              <option value="Lettre de liaison à la sortie d'un établissement de soins">Lettre de liaison à la sortie d'un établissement de soins</option>
+              <option value="CR d'examen de l'enfant">CR d'examen de l'enfant</option>
+              <option value="Mesures de signes vitaux">Mesures de signes vitaux</option>
+            </optgroup>
+
+            <!-- Imagerie médicale -->
+            <optgroup label="Imagerie médicale">
+              <option value="CR d'imagerie médicale">CR d'imagerie médicale</option>
+              <option value="Document encapsulant une image d'illustration non DICOM">Document encapsulant une image d'illustration non DICOM</option>
+            </optgroup>
+
+            <!-- Biologie -->
+            <optgroup label="Biologie">
+              <option value="CR d'anatomie et de cytologie pathologiques">CR d'anatomie et de cytologie pathologiques</option>
+              <option value="CR d'examens biologiques">CR d'examens biologiques</option>
+            </optgroup>
+
+            <!-- Prévention -->
+            <optgroup label="Prévention">
+              <option value="CR d'acte diagnostique à visée préventive ou de dépistage">CR d'acte diagnostique à visée préventive ou de dépistage</option>
+              <option value="CR d'acte thérapeutique à visée préventive">CR d'acte thérapeutique à visée préventive</option>
+            </optgroup>
+
+            <!-- Certificats, déclarations -->
+            <optgroup label="Certificats, déclarations">
+              <option value="Certificat, déclaration">Certificat, déclaration</option>
+              <option value="Certificat médical">Certificat médical</option>
+              <option value="Carte d'implant">Carte d'implant</option>
+              <option value="Test rapide d'orientation diagnostique">Test rapide d'orientation diagnostique</option>
+              <option value="COVID-19 Attestation de vaccination">COVID-19 Attestation de vaccination</option>
+            </optgroup>
+
+            <!-- Documents administratifs -->
+            <optgroup label="Documents administratifs et de gestion">
+              <option value="Attestation de consentement">Attestation de consentement</option>
+              <option value="Attestation de droits à l'assurance maladie">Attestation de droits à l'assurance maladie</option>
+              <option value="Attestation assurance complémentaire">Attestation assurance complémentaire</option>
+              <option value="Attestation de résidence">Attestation de résidence</option>
+              <option value="Attestation d'hébergement">Attestation d'hébergement</option>
+              <option value="Attestation de sortie">Attestation de sortie</option>
+              <option value="Autorisation de soins et actes non usuels sanitaires">Autorisation de soins et actes non usuels sanitaires</option>
+            </optgroup>
+          </select>
+        </label>
+
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:8px;cursor:pointer">
+          <input type="checkbox" id="deposit-visible" checked>
+          Document visible par tout professionnel autorisé
+        </label>
+
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:8px;cursor:pointer">
+          <input type="checkbox" id="deposit-background" checked>
+          Tâche de fond (masquer la fenêtre DMP, sauf à l'authentification)
+        </label>
+
+        <button class="btn btn-primary" id="btn-deposit" style="width:100%" disabled>
+          📤 Envoyer le document sélectionné au DMP
+        </button>
+
+        <div id="deposit-progress" style="margin-top:10px;display:none"></div>
+      </div>
+    </div>
+
+    <!-- Tab Notes -->
+    <div class="tab-pane" id="tab-notes">
+      <div id="note-list-container">
+        <div class="empty-state">
+          <div class="empty-icon">📝</div>
+          <div class="empty-msg">Aucune note chargée</div>
+          <div>Détectez un patient pour afficher ses notes</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="app-footer">
+    <button id="btn-guide-footer">📖 Guide d'utilisation</button>
+  </div>
+
+  <script src="../../dist/renderer/renderer.js" type="text/javascript"></script>
+</body>
+</html>
