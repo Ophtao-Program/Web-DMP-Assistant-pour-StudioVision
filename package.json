@@ -1,0 +1,21 @@
+{
+  "name": "webdmp-app",
+  "version": "1.0.0",
+  "description": "Dépôt de documents StudioVision vers le DMP (Mon Espace Santé) via Pro Santé Connect",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc && tsc -p src/renderer/tsconfig.json",
+    "start": "npm run build && electron .",
+    "service": "npm run build && electron . --service",
+    "dev": "tsc --watch & tsc -p src/renderer/tsconfig.json --watch & electron ."
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "electron": "^30.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}
