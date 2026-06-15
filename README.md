@@ -51,7 +51,9 @@ la zone de notification et le raccourci global `Ctrl+Alt+D` devient actif. À pa
 là, sélectionner un document dans StudioVision puis `Ctrl+Alt+D` ouvre une fenêtre de
 confirmation (patient, document, type DMP pré-rempli) ; après validation, le dépôt se
 fait en arrière-plan. La session e-CPS est réutilisée tant que le service tourne — pas
-de reconnexion entre deux envois. Pour quitter : clic droit sur l'icône → Quitter.
+de reconnexion entre deux envois. Un clic gauche sur l'icône vérifie si la session
+est encore active. Le menu (clic droit) permet de (re)lancer la connexion, d'ouvrir
+les journaux, et de quitter.
 
 La toute première exécution déclenche `npm install` puis la compilation dans une
 fenêtre visible (le temps de l'installation), après quoi le service démarre.
@@ -108,7 +110,7 @@ python python\dmp_connector.py --get-selected-document
 ```
 
 renvoie en JSON le chemin relatif du fichier (`Photo externe`), la description, le patient,
-et un type DMP suggéré. Le chemin relatif (du type `\05.000\5182megr.leo\fichier.pdf`) est
+et un type DMP suggéré. Le chemin relatif (du type `\GG.000\<dossier-patient>\fichier.pdf`) est
 résolu contre la racine des documents (`M:\PHOTOS` par défaut).
 
 Le connecteur propose aussi `--get-active-patient`, `--get-documents CODE`,
@@ -168,7 +170,9 @@ Variables d'environnement à passer sous PowerShell avec `$env:WEBDMP_PHOTOS = "
   rejouée. Le comportement est géré ; si elle persiste, quitter le service et relancer.
 - **`--get-selected-document` renvoie `selected: null`** — aucun document n'est sélectionné
   (curseur sur la ligne vide). Cliquer une ligne de document dans la fiche patient.
-- Journaux dans `%APPDATA%\webdmp-app\dmp_logs\` (accessibles aussi via le menu de l'icône).
+- Deux journaux, accessibles via le menu de l'icône, dans `%APPDATA%\webdmp-app\` :
+  `journal_technique.txt` (trace complète de chaque opération, pour le diagnostic) et
+  `rapport_medecin.txt` (liste datée des documents envoyés/échoués par patient).
 
 ## Limites connues
 

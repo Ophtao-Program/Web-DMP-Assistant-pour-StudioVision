@@ -42,6 +42,10 @@ export type ProgressFn = (info: { step: string; status: 'run' | 'ok' | 'wait' | 
 const ACCEPTED_EXT = ['.jpeg', '.jpg', '.txt', '.pdf', '.rtf', '.tif', '.tiff'];
 const MAX_SIZE = 5 * 1024 * 1024;   // 5 Mo
 
+// Page « Mes patients » (réinitialise le contexte patient). On y revient avant
+// chaque dépôt pour garantir qu'on sélectionne le bon patient.
+const MESPATIENTS_URL = 'https://wps-psc.dmp.monespacesante.fr/mespatients/raz';
+
 // ── Utilitaires d'attente ────────────────────────────────────────────────────
 
 /** Attend que l'URL de la fenêtre satisfasse `test`. Gère le bounce index2. */
@@ -138,6 +142,20 @@ async function clickPatientLink(win: BrowserWindow, surname: string): Promise<{ 
     if(!hit){ return {ok:false, found: links.map(function(a){return (a.textContent||'').trim().slice(0,40);})}; }
     hit.scrollIntoView({block:'center'}); hit.click();
     return {ok:true, id: hit.id};
+  })();`;
+  return win.webContents.executeJavaScript(js);
+}
+
+/** Sur la page « Confirmation d'accès à un autre DMP », clique « Oui »
+ *  (lien dont l'URL contient « confirmopendmp »), à défaut le lien texte « Oui ».
+ *  Cela ferme automatiquement l'autre DMP encore ouvert et ouvre celui visé. */
+async function clickConfirmOpenOtherDmp(win: BrowserWindow): Promise<{ ok: boolean }> {
+  const js = `(function(){
+    var links = Array.prototype.slice.call(document.querySelectorAll('a'));
+    var oui = links.filter(function(a){ return /confirmopendmp/i.test(a.getAttribute('href')||''); })[0]
+           || links.filter(function(a){ return (a.textContent||'').trim().toLowerCase() === 'oui'; })[0];
+    if(oui){ oui.scrollIntoView({block:'center'}); oui.click(); return {ok:true}; }
+    return {ok:false};
   })();`;
   return win.webContents.executeJavaScript(js);
 }
@@ -345,28 +363,61 @@ export async function runDeposit(win: BrowserWindow, opts: DepositOptions, emit:
       ? 'Connexion validée — fenêtre masquée, dépôt en arrière-plan.'
       : 'Connexion e-CPS validée.');
 
-    // 2. Sélection du patient (si on n'est pas déjà dans son DMP)
-    if (!/\/dmp\/recapitulatif/.test(win.webContents.getURL())) {
-      step('patient', 'run', `Recherche du patient « ${opts.surname} » dans la liste…`);
-      await waitForSelector(win, 'a[id^="openDMPLink"]', 15000);
-      const p = await clickPatientLink(win, opts.surname);
-      if (!p.ok) {
-        const presents = (p.found && p.found.length)
-          ? ` Patients actuellement dans « Mes patients » : ${p.found.join(', ')}.`
-          : '';
-        const msg = `Le patient « ${opts.surname} » n'est pas dans votre espace DMP. `
-          + `Avant de pouvoir lui transmettre un document, ajoutez-le depuis le portail `
-          + `(Mon Espace Santé Pro) avec sa carte Vitale ou son identifiant INS, `
-          + `puis relancez l'envoi.` + presents;
-        step('patient', 'error', msg);
-        reveal();
-        return { ok: false, error: msg };
-      }
-      await waitForUrl(win, (u) => /\/dmp\/recapitulatif/.test(u), 20000);
-      step('patient', 'ok', 'DMP du patient ouvert.');
-    } else {
-      step('patient', 'ok', 'DMP du patient déjà ouvert.');
+    // 2. Sélection du patient — TOUJOURS repartir de la liste « Mes patients »
+    //    puis sélectionner le bon patient par son nom. On ne se fie JAMAIS à la
+    //    page ouverte : en réutilisant une session, la fenêtre peut être restée
+    //    sur le récapitulatif du patient précédent (risque de dépôt sur le mauvais
+    //    dossier). On force donc le retour à la liste à chaque dépôt.
+    step('patient', 'run', `Sélection du patient dans « Mes patients »…`);
+    await win.webContents.loadURL(MESPATIENTS_URL);
+    if (!(await waitForSelector(win, 'a[id^="openDMPLink"]', 15000))) {
+      const msg = `Impossible d'afficher la liste « Mes patients ». `
+        + `Vérifiez la connexion au DMP, puis relancez l'envoi.`;
+      step('patient', 'error', msg);
+      reveal();
+      return { ok: false, error: msg };
     }
+    const p = await clickPatientLink(win, opts.surname);
+    if (!p.ok) {
+      const msg = `Ce patient n'est pas enregistré dans votre espace DMP. `
+        + `Avant de pouvoir lui transmettre un document, ajoutez-le depuis le portail `
+        + `(Mon Espace Santé Pro) avec sa carte Vitale ou son identifiant INS, `
+        + `puis relancez l'envoi.`;
+      step('patient', 'error', msg);
+      reveal();
+      return { ok: false, error: msg };
+    }
+    // Après le clic, deux cas possibles :
+    //  - on arrive directement au récapitulatif du patient ;
+    //  - on tombe sur « Confirmation d'accès à un autre DMP » parce qu'un autre DMP
+    //    est encore ouvert (le portail interdit deux DMP simultanés). Dans ce cas, on
+    //    clique « Oui » (lien dont l'URL contient « confirmopendmp ») pour fermer
+    //    automatiquement l'autre DMP et ouvrir celui-ci.
+    let ouvert = false;
+    let confirmeUneFois = false;
+    const limite = Date.now() + 25000;
+    while (Date.now() < limite) {
+      let u = '';
+      try { u = win.webContents.getURL(); } catch {}
+      if (/\/dmp\/recapitulatif/.test(u)) { ouvert = true; break; }
+      const surConfirmation = await win.webContents.executeJavaScript(
+        `!!document.querySelector('a[href*="confirmopendmp"]')`
+      ).catch(() => false);
+      if (surConfirmation && !confirmeUneFois) {
+        confirmeUneFois = true;
+        step('patient', 'run', 'Un autre DMP était ouvert : fermeture automatique…');
+        await clickConfirmOpenOtherDmp(win);
+      }
+      await new Promise(r => setTimeout(r, 400));
+    }
+    if (!ouvert) {
+      const msg = `Impossible d'ouvrir le DMP de ce patient `
+        + `(la page de confirmation n'a pas abouti). Réessayez l'envoi.`;
+      step('patient', 'error', msg);
+      reveal();
+      return { ok: false, error: msg };
+    }
+    step('patient', 'ok', 'DMP du patient ouvert.');
 
     // 3. Ouvrir le formulaire d'ajout de document
     step('ajout', 'run');

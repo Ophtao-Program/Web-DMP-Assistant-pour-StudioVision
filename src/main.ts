@@ -24,6 +24,7 @@ const HOTKEY = 'CommandOrControl+Alt+D';
 let tray: Tray | null = null;
 let quickWindow: BrowserWindow | null = null;
 let savedEcpsId = '';   // identifiant e-CPS mémorisé (config) pour le mode service
+let lastConnected: boolean | null = null;   // dernier état de connexion connu (null = inconnu)
 
 let mainWindow: BrowserWindow | null = null;
 let dmpWindow:  BrowserWindow | null = null;
@@ -33,6 +34,44 @@ let dmpAuthenticated = false;   // vrai dès qu'une session DMP a été ouverte 
 const LOGS_DIR   = path.join(app.getPath('userData'), 'dmp_logs');
 const LOGS_INDEX = path.join(LOGS_DIR, 'index.jsonl');
 let logSession: DmpLogSession | null = null;     // session d'enregistrement courante
+
+// ── Journaux destinés aux utilisateurs ───────────────────────────────────────
+// 1) Journal technique : trace exhaustive de chaque opération (pour l'informaticien).
+// 2) Rapport médecin   : uniquement les envois (réussis/échoués) avec patient et date.
+const TECH_LOG   = path.join(app.getPath('userData'), 'journal_technique.txt');
+const REPORT_LOG = path.join(app.getPath('userData'), 'rapport_medecin.txt');
+
+function nowStamp(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/** Écrit une ligne horodatée dans le journal technique (création du fichier au besoin). */
+function logTech(message: string): void {
+  try {
+    if (!fs.existsSync(TECH_LOG)) {
+      fs.writeFileSync(TECH_LOG,
+        'Journal technique — WebDMP Assistant\r\n'
+        + 'Trace complete des operations. A transmettre a l\'informaticien en cas de probleme.\r\n'
+        + '='.repeat(72) + '\r\n', 'utf-8');
+    }
+    fs.appendFileSync(TECH_LOG, `[${nowStamp()}] ${message}\r\n`, 'utf-8');
+  } catch { /* ne jamais bloquer le programme à cause du journal */ }
+}
+
+/** Écrit une ligne horodatée dans le rapport médecin (envois uniquement). */
+function logReport(line: string): void {
+  try {
+    if (!fs.existsSync(REPORT_LOG)) {
+      fs.writeFileSync(REPORT_LOG,
+        'Rapport des envois au DMP — WebDMP Assistant\r\n'
+        + 'Liste des documents transmis (ou en echec) par patient, avec date.\r\n'
+        + '='.repeat(72) + '\r\n', 'utf-8');
+    }
+    fs.appendFileSync(REPORT_LOG, `[${nowStamp()}] ${line}\r\n`, 'utf-8');
+  } catch { /* idem */ }
+}
 
 /** Injecte le script recorder dans la fenêtre DMP (idempotent). */
 function injectRecorder(): void {
@@ -87,6 +126,20 @@ function createDmpWindow(visible: boolean = true): BrowserWindow {
     dmpWindow = null;
     // Notifier la fenêtre principale que la fenêtre DMP a été fermée
     mainWindow?.webContents.send('dmp-window-closed');
+  });
+
+  // Empêcher l'ouverture de pop-ups / liens externes : sans cela, certaines pages
+  // (Pro Santé Connect) déclenchent le dialogue Windows « Comment voulez-vous ouvrir
+  // ce type d'élément ? ». L'authentification se fait par e-CPS mobile (téléphone),
+  // aucune ouverture externe n'est nécessaire ici.
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // Bloquer les navigations vers un schéma non http(s) (mailto:, protocoles applicatifs…)
+  // qui ouvriraient une application tierce.
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!/^https?:/i.test(url)) event.preventDefault();
+  });
+  win.webContents.on('will-redirect', (event, url) => {
+    if (!/^https?:/i.test(url)) event.preventDefault();
   });
 
   win.webContents.on('did-navigate', (_event, url) => {
@@ -221,6 +274,10 @@ const PSC_URL = 'https://wallet.esw.esante.gouv.fr/auth/'
 // session active, provoque l'erreur "Erreur générale non identifiée" via callbackoidc).
 const DMP_HOME = 'https://wps-psc.dmp.monespacesante.fr/';
 
+// Page « Mes patients » (réinitialise le contexte patient). Sert de point d'entrée
+// authentifié pour vérifier la session et pour resélectionner le patient.
+const MESPATIENTS_URL = 'https://wps-psc.dmp.monespacesante.fr/mespatients/raz';
+
 // Script JS injecté dans la page PSC — remplit l'identifiant et clique automatiquement
 function buildLoginScript(ecpsId: string): string {
   const safe = JSON.stringify(ecpsId);
@@ -275,39 +332,47 @@ function buildLoginScript(ecpsId: string): string {
 `;
 }
 
-/** Ouvre (ou ramène au premier plan) la fenêtre DMP et lance l'auth PSC/e-CPS. */
-async function ensureDmpWindow(ecpsId: string, background: boolean = false): Promise<BrowserWindow> {
-  if (!dmpWindow || dmpWindow.isDestroyed()) {
-    dmpWindow = createDmpWindow(!background);   // masquée si tâche de fond
-    // Si une session DMP a déjà été ouverte dans cette exécution, on va droit à
-    // l'appli (réutilise la session) au lieu de relancer OIDC, ce qui éviterait
-    // l'« Erreur générale non identifiée ». Sinon, tunnel OIDC normal.
-    await dmpWindow.loadURL(dmpAuthenticated ? DMP_HOME : PSC_URL);
+/** Attache une seule fois les gestionnaires à la fenêtre DMP (login PSC, recorder, URL). */
+function attachDmpHandlers(win: BrowserWindow, ecpsId: string): void {
+  win.webContents.on('did-finish-load', () => {
+    const url = win.webContents.getURL();
+    const isPscPage = url.includes('wallet.esw.esante.gouv.fr')
+                   || url.includes('auth.esw.esante.gouv.fr');
+    if (isPscPage && ecpsId) {
+      win.webContents.executeJavaScript(buildLoginScript(ecpsId)).catch(() => {});
+    }
+    if (logSession) injectRecorder();
+    if (mainWindow) mainWindow.webContents.send('dmp-url-changed', url);
+  });
+}
 
-    // Injecter l'identifiant après chaque navigation vers la page PSC
-    dmpWindow.webContents.on('did-finish-load', () => {
-      const url = dmpWindow!.webContents.getURL();
-      const isPscPage = url.includes('wallet.esw.esante.gouv.fr')
-                     || url.includes('auth.esw.esante.gouv.fr');
-      if (isPscPage && ecpsId) {
-        dmpWindow!.webContents.executeJavaScript(buildLoginScript(ecpsId))
-          .catch(() => {});
-      }
-      // Si un enregistrement est actif, (ré)injecter le recorder sur la nouvelle page
-      if (logSession) injectRecorder();
-      // Notifier le renderer de l'URL courante
-      if (mainWindow) mainWindow.webContents.send('dmp-url-changed', url);
-    });
+/** Renvoie la fenêtre DMP (la crée masquée/visible si besoin), SANS forcer de navigation. */
+function getDmpWindow(background: boolean, ecpsId: string = savedEcpsId): BrowserWindow {
+  if (!dmpWindow || dmpWindow.isDestroyed()) {
+    dmpWindow = createDmpWindow(!background);
+    attachDmpHandlers(dmpWindow, ecpsId);
+  }
+  return dmpWindow;
+}
+
+/** Ouvre (ou ramène) la fenêtre DMP et lance l'auth PSC/e-CPS si nécessaire. */
+async function ensureDmpWindow(ecpsId: string, background: boolean = false): Promise<BrowserWindow> {
+  const fresh = !dmpWindow || dmpWindow.isDestroyed();
+  const win = getDmpWindow(background, ecpsId);
+  if (fresh) {
+    // Session déjà ouverte → page DMP directe (réutilise la session, évite de rejouer
+    // OIDC ce qui provoquerait « Erreur générale »). Sinon, tunnel OIDC normal.
+    await win.loadURL(dmpAuthenticated ? DMP_HOME : PSC_URL);
   } else {
-    const currentUrl = dmpWindow.webContents.getURL();
+    const currentUrl = win.webContents.getURL();
     const alreadyLoggedIn = currentUrl.includes('dmp.monespacesante.fr')
                          || currentUrl.includes('dmp.fr/ps');
     if (!alreadyLoggedIn) {
-      await dmpWindow.loadURL(PSC_URL);
+      await win.loadURL(PSC_URL);
     }
-    if (!background) dmpWindow.focus();   // en tâche de fond, rester masquée
+    if (!background) win.focus();   // en tâche de fond, rester masquée
   }
-  return dmpWindow;
+  return win;
 }
 
 ipcMain.handle('open-dmp-window', async (_event, ecpsId: string) => {
@@ -341,7 +406,7 @@ ipcMain.on('dmp-recorder-event', (_event, ev: RecorderEvent) => {
 
 /**
  * Démarre une session d'enregistrement.
- * patientLabel : ex. "MEGRET Leo (5182)" — sert d'en-tête de log.
+ * patientLabel : ex. "NOM Prenom (code)" — sert d'en-tete de log.
  */
 ipcMain.handle('recorder-start', (_event, patientLabel: string) => {
   try {
@@ -516,21 +581,122 @@ function makeTrayIcon(): Electron.NativeImage {
   return nativeImage.createFromBuffer(Buffer.from(b64, 'base64'));
 }
 
+/** Met à jour l'info-bulle de l'icône selon l'état de connexion connu. */
+function updateTrayStatus(connected: boolean | null): void {
+  lastConnected = connected;
+  if (!tray) return;
+  const base = 'WebDMP Assistant';
+  const etat = connected === true ? 'connecté'
+             : connected === false ? 'non connecté'
+             : 'état inconnu';
+  tray.setToolTip(`${base} — ${etat} (clic gauche : vérifier · Ctrl+Alt+D : envoyer)`);
+}
+
+/**
+ * Vérifie RÉELLEMENT si la session DMP est encore active, en chargeant la liste
+ * patients (page authentifiée) dans la fenêtre masquée : si on y reste, on est
+ * connecté ; si on est redirigé vers Pro Santé Connect, la session a expiré.
+ * Lecture seule (ne montre pas la fenêtre, ne déclenche pas d'authentification).
+ */
+async function checkConnectionStatus(): Promise<boolean> {
+  const win = getDmpWindow(true);                 // masquée
+  try { await win.loadURL(MESPATIENTS_URL); } catch { /* navigation interrompue */ }
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    let u = '';
+    try { u = win.webContents.getURL(); } catch {}
+    if (/wallet\.esw\.esante\.gouv\.fr/.test(u) || /auth\.esw\.esante\.gouv\.fr/.test(u)) return false;
+    if (/\/mespatients/.test(u) || /\/dmp\//.test(u)) return true;   // resté sur le DMP = authentifié
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return false;
+}
+
+/** Clic gauche sur l'icône : indique si la session est encore active. */
+async function showConnectionStatus(): Promise<void> {
+  if (depositRunning || (quickWindow && !quickWindow.isDestroyed())) {
+    notify('WebDMP Assistant', 'Opération en cours… réessayez juste après.');
+    return;
+  }
+  logTech('Vérification du statut de connexion (clic icône).');
+  notify('WebDMP Assistant', 'Vérification de la connexion…');
+  const ok = await checkConnectionStatus();
+  updateTrayStatus(ok);
+  if (ok) {
+    notify('WebDMP Assistant', '✓ Session e-CPS active. Vous pouvez envoyer (Ctrl+Alt+D).');
+    logTech('Statut : session active.');
+  } else {
+    notify('WebDMP Assistant', '✗ Non connecté. Menu de l\'icône → « Se connecter / vérifier la connexion ».');
+    logTech('Statut : non connecté.');
+  }
+}
+
+/**
+ * Établit (ou rétablit) la connexion e-CPS de façon fiable : on force le chargement
+ * de la liste patients ; si la session est valide, c'est terminé ; sinon on affiche
+ * la fenêtre PSC pour la validation e-CPS, puis on la masque une fois connecté.
+ */
+async function connectOrVerify(): Promise<void> {
+  if (depositRunning) { notify('WebDMP Assistant', 'Un dépôt est en cours, réessayez juste après.'); return; }
+  logTech('Connexion e-CPS : établissement/vérification demandé.');
+  const win = getDmpWindow(false);                // créée si besoin (gestionnaires attachés)
+  win.hide();                                     // test discret d'abord
+  try { await win.loadURL(MESPATIENTS_URL); } catch {}
+
+  let settled = false;
+  const onNav = () => {
+    if (settled) return;
+    let u = ''; try { u = win.webContents.getURL(); } catch { return; }
+    if (/\/mespatients/.test(u) || /\/dmp\//.test(u)) {
+      settled = true;
+      win.webContents.removeListener('did-navigate', onNav);
+      win.hide();
+      updateTrayStatus(true);
+      notify('WebDMP Assistant', '✓ Connexion e-CPS active.');
+      logTech('Connexion e-CPS : active.');
+    } else if (/wallet\.esw\.esante\.gouv\.fr/.test(u) || /auth\.esw\.esante\.gouv\.fr/.test(u)) {
+      // Authentification nécessaire : on montre la fenêtre pour la validation e-CPS.
+      win.show(); win.focus();
+      logTech('Connexion e-CPS : page PSC affichée pour validation.');
+    }
+  };
+  win.webContents.on('did-navigate', onNav);
+  setTimeout(onNav, 1000);   // si on est déjà authentifié, déclencher la vérification
+
+  // Délai max (validation mobile ≤120 s)
+  setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    try { win.webContents.removeListener('did-navigate', onNav); } catch {}
+    let u = ''; try { u = win.webContents.getURL(); } catch {}
+    const ok = /\/mespatients/.test(u) || /\/dmp\//.test(u);
+    updateTrayStatus(ok);
+    if (ok) { win.hide(); notify('WebDMP Assistant', '✓ Connexion e-CPS active.'); }
+    else { win.show(); win.focus(); notify('WebDMP Assistant', 'Validez l\'authentification e-CPS dans la fenêtre affichée.'); }
+    logTech(`Connexion e-CPS : ${ok ? 'active' : 'non établie (délai)'}.`);
+  }, 130000);
+}
+
+
 function setupTray(): void {
   if (tray) return;
   tray = new Tray(makeTrayIcon());
-  tray.setToolTip('WebDMP — service actif (Ctrl+Alt+D pour envoyer)');
+  updateTrayStatus(null);
   const menu = Menu.buildFromTemplate([
-    { label: 'WebDMP Assistant — service actif', enabled: false },
+    { label: 'WebDMP Assistant', enabled: false },
     { type: 'separator' },
     { label: 'Envoyer le document sélectionné (Ctrl+Alt+D)', click: () => triggerQuickDeposit() },
-    { label: 'Vérifier / rétablir la connexion e-CPS', click: () => ensureDmpWindow(savedEcpsId, false) },
-    { label: 'Dossier des journaux', click: () => { fs.mkdirSync(LOGS_DIR, { recursive: true }); shell.openPath(LOGS_DIR); } },
+    { label: 'Se connecter / vérifier la connexion e-CPS', click: () => connectOrVerify() },
+    { label: 'Vérifier le statut de connexion', click: () => showConnectionStatus() },
+    { type: 'separator' },
+    { label: 'Ouvrir le log technique', click: () => { logTech('Ouverture du log technique.'); shell.openPath(TECH_LOG); } },
+    { label: 'Ouvrir le rapport médecin', click: () => { if (!fs.existsSync(REPORT_LOG)) logReport('(aucun envoi pour le moment)'); shell.openPath(REPORT_LOG); } },
     { type: 'separator' },
     { label: 'Quitter', click: () => { app.quit(); } },
   ]);
   tray.setContextMenu(menu);
-  tray.on('double-click', () => triggerQuickDeposit());
+  // Clic gauche sur l'icône : vérifier si la session est encore active.
+  tray.on('click', () => { showConnectionStatus(); });
 }
 
 /** Résout le chemin physique d'un document à partir de son [Photo externe] relatif. */
@@ -554,19 +720,24 @@ async function triggerQuickDeposit(): Promise<void> {
   if (quickWindow && !quickWindow.isDestroyed()) { quickWindow.focus(); return; }
   quickBusy = true;
   try {
+    logTech('Ctrl+Alt+D : lecture du document sélectionné dans StudioVision.');
     let sel: any;
     try {
       sel = await runPython(['--get-selected-document']);
     } catch (e) {
-      notify('WebDMP', 'Impossible de lire StudioVision (Access ouvert ?).');
+      logTech(`Lecture StudioVision : échec (${String(e)}).`);
+      notify('WebDMP Assistant', 'Impossible de lire StudioVision (Access ouvert ?).');
       return;
     }
     if (!sel || sel.selected === null || !sel.photo_externe) {
-      notify('WebDMP', 'Aucun document sélectionné. Cliquez un document dans la fiche patient, puis Ctrl+Alt+D.');
+      logTech('Lecture StudioVision : aucun document sélectionné.');
+      notify('WebDMP Assistant', 'Aucun document sélectionné. Cliquez un document dans la fiche patient, puis Ctrl+Alt+D.');
       return;
     }
 
     const resolved = resolveDocPath(String(sel.photo_externe));
+    logTech(`Document sélectionné : « ${sel.description} » (${resolved.fileName}) pour ${sel.nom} ${sel.prenom} (${sel.code}). `
+          + `Fichier ${resolved.existe ? 'trouvé' : 'INTROUVABLE'} : ${resolved.filePath}`);
     const doc = {
       code: sel.code, nom: sel.nom, prenom: sel.prenom,
       photo_externe: sel.photo_externe, description: sel.description,
@@ -577,7 +748,7 @@ async function triggerQuickDeposit(): Promise<void> {
     };
 
     quickWindow = new BrowserWindow({
-      width: 460, height: 560, title: 'Envoyer au DMP',
+      width: 460, height: 560, title: 'Envoyer au DMP — WebDMP Assistant',
       resizable: false, minimizable: false, maximizable: false,
       alwaysOnTop: true, skipTaskbar: false,
       webPreferences: {
@@ -591,6 +762,7 @@ async function triggerQuickDeposit(): Promise<void> {
     quickWindow.webContents.once('did-finish-load', () => {
       quickWindow?.webContents.send('quick-deposit-init', doc);
     });
+    logTech('Fenêtre de validation ouverte.');
   } finally {
     quickBusy = false;
   }
@@ -600,21 +772,58 @@ async function triggerQuickDeposit(): Promise<void> {
 ipcMain.handle('quick-deposit-send', async (_event, opts: DepositOptions & { ecpsId?: string }) => {
   if (depositRunning) return { ok: false, error: 'Un dépôt est déjà en cours.' };
   const pf = preflight(opts);
-  if (!pf.ok) return { ok: false, error: pf.reason };
+  if (!pf.ok) {
+    logTech(`Dépôt refusé avant envoi : ${pf.reason}`);
+    return { ok: false, error: pf.reason };
+  }
+  const patientLbl = `${opts.surname}`;
 
   depositRunning = true;
+  logTech(`Dépôt demandé : « ${opts.title} » (${opts.fileName}), type « ${opts.docTypeLabel} », patient ${patientLbl}.`);
   const emit = (info: { step: string; status: string; detail?: string }) => {
     quickWindow?.webContents.send('deposit-progress', info);
+    logTech(`  [étape ${info.step}/${info.status}] ${info.detail || ''}`.trimEnd());
   };
+
+  const win = await ensureDmpWindow(savedEcpsId, true);   // tâche de fond (masquée)
+
+  // Pendant l'authentification, la fenêtre DMP s'affiche : on la fait passer DEVANT
+  // la fenêtre de validation (qui est alwaysOnTop) pour qu'on puisse valider l'e-CPS.
+  // On rétablit l'ordre ensuite. (En session valide, la fenêtre DMP ne s'affiche pas.)
+  const onDmpShow = () => {
+    logTech('Fenêtre DMP affichée (authentification e-CPS requise).');
+    if (quickWindow && !quickWindow.isDestroyed()) quickWindow.setAlwaysOnTop(false);
+    win.setAlwaysOnTop(true); win.moveTop(); win.focus();
+  };
+  const onDmpHide = () => {
+    win.setAlwaysOnTop(false);
+    if (quickWindow && !quickWindow.isDestroyed()) {
+      quickWindow.setAlwaysOnTop(true); quickWindow.moveTop(); quickWindow.focus();
+    }
+  };
+  win.on('show', onDmpShow);
+  win.on('hide', onDmpHide);
+
   try {
-    const win = await ensureDmpWindow(savedEcpsId, true);   // tâche de fond
     const res = await runDeposit(win, opts, emit as any);
-    if (res.ok) notify('WebDMP', `Document déposé : ${opts.fileName}`);
+    if (res.ok) {
+      updateTrayStatus(true);
+      notify('WebDMP Assistant', `Document déposé : ${opts.fileName}`);
+      logReport(`ENVOYÉ — « ${opts.title} » (${opts.fileName}) → ${patientLbl} — type « ${opts.docTypeLabel} »`);
+      logTech(`Dépôt réussi : « ${opts.fileName} » → ${patientLbl}.`);
+    } else {
+      logReport(`ÉCHEC  — « ${opts.title} » (${opts.fileName}) → ${patientLbl} — motif : ${res.error || 'inconnu'}`);
+      logTech(`Dépôt échoué : ${res.error || 'inconnu'}.`);
+    }
     return res;
   } catch (err) {
+    logReport(`ÉCHEC  — « ${opts.title} » (${opts.fileName}) → ${patientLbl} — erreur : ${String(err)}`);
+    logTech(`Dépôt : exception ${String(err)}.`);
     return { ok: false, error: String(err) };
   } finally {
     depositRunning = false;
+    try { win.removeListener('show', onDmpShow); } catch {}
+    try { win.removeListener('hide', onDmpHide); } catch {}
   }
 });
 
@@ -625,56 +834,73 @@ ipcMain.on('quick-deposit-cancel', () => {
 /** Charge l'identifiant e-CPS mémorisé (pour le mode service). */
 function loadSavedEcpsId(): void {
   try {
-    const p = path.join(app.getPath('userData'), 'config.json');
-    if (fs.existsSync(p)) {
-      const cfg = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    if (fs.existsSync(CONFIG_PATH)) {
+      const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
       if (cfg && typeof cfg.ecps_id === 'string') savedEcpsId = cfg.ecps_id;
     }
   } catch { /* ignore */ }
 }
 
-/** Démarre le mode service : auth initiale e-CPS, tray, raccourci global. */
+/** Démarre le mode service : tray, raccourci global, puis connexion e-CPS initiale. */
 async function startServiceMode(): Promise<void> {
+  logTech('Démarrage du service WebDMP Assistant.');
   loadSavedEcpsId();
   setupTray();
 
-  // Enregistrer le raccourci global Ctrl+Alt+D
   const ok = globalShortcut.register(HOTKEY, () => { triggerQuickDeposit(); });
-  if (!ok) {
-    notify('WebDMP', `Le raccourci ${HOTKEY} n'a pas pu être enregistré (déjà utilisé ?).`);
+  if (ok) {
+    logTech(`Raccourci ${HOTKEY} enregistré.`);
+  } else {
+    logTech(`Raccourci ${HOTKEY} NON enregistré (déjà utilisé ?).`);
+    notify('WebDMP Assistant', `Le raccourci ${HOTKEY} n'a pas pu être enregistré (déjà utilisé ?).`);
   }
 
-  // Authentification initiale : on ouvre le DMP (visible) pour la validation e-CPS,
-  // il se masquera une fois connecté. Ensuite, prêt pour les Ctrl+Alt+D.
-  const win = await ensureDmpWindow(savedEcpsId, false);
-  // Quand on atteint une page authentifiée, masquer la fenêtre : le service est prêt.
-  const hideWhenReady = () => {
-    const u = win.webContents.getURL();
-    if (/\/mespatients/.test(u) || /\/dmp\//.test(u)) {
-      win.hide();
-      notify('WebDMP', 'Connecté. Sélectionnez un document dans StudioVision et faites Ctrl+Alt+D.');
-      win.webContents.removeListener('did-navigate', hideWhenReady);
-    }
-  };
-  win.webContents.on('did-navigate', hideWhenReady);
+  // Connexion initiale fiable : vérifie la session, affiche la fenêtre PSC si besoin.
+  await connectOrVerify();
 }
 
 
 // ── 5. LIFECYCLE ─────────────────────────────────────────────────────────────
 
-app.whenReady().then(() => {
-  // UserAgent réaliste pour éviter les blocages du portail DMP
-  const dmpSession = require('electron').session.fromPartition('persist:webdmp');
-  dmpSession.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-  );
-  if (SERVICE_MODE) {
-    startServiceMode();           // mode résident : pas de fenêtre principale
-  } else {
-    createMainWindow();
+// Identité de l'application affichée par Windows (notifications, barre des tâches).
+// On ne change PAS app.name (cela déplacerait les chemins de config/journaux) :
+// l'AppUserModelId suffit à corriger le nom montré dans les notifications.
+app.setAppUserModelId('WebDMP Assistant');
+
+// Verrou mono-instance : une seule application WebDMP Assistant active à la fois.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+app.on('second-instance', () => {
+  // Une seconde exécution a été tentée : on la signale et on ramène l'existante.
+  logTech('Seconde instance bloquée (mono-instance).');
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  } else if (SERVICE_MODE) {
+    notify('WebDMP Assistant',
+           'WebDMP Assistant est déjà actif (icône près de l\'horloge). Ctrl+Alt+D pour envoyer.');
   }
 });
+
+if (!gotSingleInstanceLock) {
+  // Une instance tourne déjà : cette seconde instance se ferme immédiatement.
+  app.quit();
+} else {
+  app.whenReady().then(() => {
+    // UserAgent réaliste pour éviter les blocages du portail DMP
+    const dmpSession = require('electron').session.fromPartition('persist:webdmp');
+    dmpSession.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    );
+    if (SERVICE_MODE) {
+      startServiceMode();           // mode résident : pas de fenêtre principale
+    } else {
+      createMainWindow();
+    }
+  });
+}
 
 app.on('window-all-closed', () => {
   // En mode service, on RESTE actif même sans fenêtre (la fenêtre DMP est masquée).
@@ -687,5 +913,6 @@ app.on('activate', () => {
 });
 
 app.on('will-quit', () => {
+  logTech('Arrêt de WebDMP Assistant.');
   globalShortcut.unregisterAll();
 });

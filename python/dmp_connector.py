@@ -419,7 +419,7 @@ _TYPE_BY_EXT = {
 def _resolve_doc(photo_raw: str, dest_photos: Path) -> tuple[str, Path]:
     """Reconstruit (nom_fichier, chemin_physique) depuis [Photo externe].
 
-    [Photo externe] = chemin RELATIF Windows, ex : \\05.000\\5182megr.leo\\img.tif
+    [Photo externe] = chemin RELATIF Windows, ex : \\GG.000\\<dossier-patient>\\fichier.tif
     On découpe sur / ET \\ (robuste, comme sv_reader), puis on rejoint sous DEST_PHOTOS.
     On n'utilise PAS Path(...).name sur la chaîne brute : sous un OS non-Windows
     '\\' n'est pas un séparateur, ce qui fausserait l'extension/le nom.
